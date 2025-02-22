@@ -3,38 +3,79 @@ local MemStorageService = game:GetService('MemStorageService')
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local Players = game:GetService("Players")
 
-local function verifyKey(key)
+local function makeRequest(url, method, data)
     local HttpService = game:GetService("HttpService")
     
+    -- Try different request methods based on executor
     local success, response = pcall(function()
-        local webhookUrl = "https://smax-script.onrender.com/verify"
+        -- Method 1: Synapse X / Script-Ware
+        if syn and syn.request then
+            return syn.request({
+                Url = url,
+                Method = method,
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(data)
+            })
+        end
         
-        local data = {
-            ["key"] = key
-        }
+        -- Method 2: KRNL / Other
+        if request then
+            return request({
+                Url = url,
+                Method = method,
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(data)
+            })
+        end
         
-        local jsonData = HttpService:JSONEncode(data)
-        print("Sending request with data:", jsonData)
+        -- Method 3: Fluxus
+        if http and http.request then
+            return http.request({
+                Url = url,
+                Method = method,
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+                Body = HttpService:JSONEncode(data)
+            })
+        end
         
-        local response = HttpService:RequestAsync({
-            Url = webhookUrl,
-            Method = "POST",
+        -- Fallback: HttpService (if game allows HTTP requests)
+        return HttpService:RequestAsync({
+            Url = url,
+            Method = method,
             Headers = {
                 ["Content-Type"] = "application/json"
             },
-            Body = jsonData
+            Body = HttpService:JSONEncode(data)
         })
-        
-        print("Response received:", response.Body)
-        return response.Body == "valid"
     end)
     
     if not success then
-        warn("Failed to verify key:", response)
-        return false
+        warn("Request failed:", response)
+        return nil
     end
     
     return response
+end
+
+local function verifyKey(key)
+    local response = makeRequest(
+        "https://smax-script.onrender.com/verify",
+        "POST",
+        {["key"] = key}
+    )
+    
+    if response then
+        print("Response received:", response.Body)
+        return response.Body == "valid"
+    end
+    
+    return false
 end
 
 -- Create key system UI
