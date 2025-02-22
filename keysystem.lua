@@ -13,8 +13,6 @@ local function verifyKey(key)
             ["key"] = key
         }
         
-        print("Sending data:", HttpService:JSONEncode(data))
-        
         local response = syn.request({
             Url = webhookUrl,
             Method = "POST",
@@ -24,21 +22,12 @@ local function verifyKey(key)
             Body = HttpService:JSONEncode(data)
         })
         
-        if response then
-            print("Response Status:", response.StatusCode)
-            print("Response Headers:", HttpService:JSONEncode(response.Headers))
-            print("Response Body:", response.Body)
-            
-            if response.StatusCode == 200 then
-                return response.Body == "valid"
-            end
-        end
-        
-        return false
+        print("Response received:", response.Body)
+        return response.Body == "valid"
     end)
     
     if not success then
-        print("Request failed:", response)
+        warn("Failed to verify key:", response)
         return false
     end
     
@@ -72,11 +61,13 @@ Box:AddInput('Key', {
 Box:AddButton({
     Text = 'Verify Key',
     Func = function()
+        print("Attempting to verify key:", keyInput)
         if verifyKey(keyInput) then
+            print("Key verified successfully!")
             KeySystem:Unload()
-            -- Load your main script directly here
             loadstring(game:HttpGet("https://raw.githubusercontent.com/Pedalkis123/SMAX-Script/main/main1.lua"))()
         else
+            print("Invalid key!")
             Box:AddLabel("Invalid key! Purchase at: your_store_url")
         end
     end
