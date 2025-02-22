@@ -25,16 +25,22 @@ local function verifyKey(key)
         })
         
         -- Debug print
-        print("Server response:", response.Body)
+        print("Server response status:", response.StatusCode)
+        print("Server response body:", response.Body)
         
-        return response.Body == "valid"
+        -- Check if the response is what we expect
+        if response.StatusCode == 200 then
+            return response.Body == "valid"
+        end
+        return false
     end)
     
     if not success then
         print("Verification error:", response)
+        return false
     end
     
-    return success and response
+    return response
 end
 
 -- Create key system UI
