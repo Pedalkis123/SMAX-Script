@@ -6,7 +6,7 @@ local Players = game:GetService("Players")
 local function verifyKey(key)
     local success, response = pcall(function()
         -- Update this URL with your Replit URL
-        local webhookUrl = "https://projectname.yourusername.repl.co/verify"
+        local webhookUrl = "https://replit.com/@solartrack1312/SoggyFluidFields/verify"
         
         local data = {
             ["key"] = key,
