@@ -373,6 +373,19 @@ app.post('/new-purchase', (req, res) => {
     res.send('OK');
 });
 
+app.get('/setup-admin', async (req, res) => {
+    try {
+        const hashedPassword = await bcrypt.hash('your_admin_password', 10);
+        await Admin.create({
+            username: 'your_admin_username',
+            password: hashedPassword
+        });
+        res.send('Admin created successfully');
+    } catch (err) {
+        res.status(500).send('Error creating admin: ' + err.message);
+    }
+});
+
 // Clear all keys (for testing)
 app.get('/clear-keys', (req, res) => {
     validKeys.clear();
