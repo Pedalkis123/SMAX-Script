@@ -378,7 +378,7 @@ app.get('/setup-admin', async (req, res) => {
         const hashedPassword = await bcrypt.hash('your_admin_password', 10);
         await Admin.create({
             username: 'admin1312',
-            password: admin1312!
+            password: admin1312
         });
         res.send('Admin created successfully');
     } catch (err) {
