@@ -5,17 +5,15 @@ local Players = game:GetService("Players")
 
 local function verifyKey(key)
     local success, response = pcall(function()
-        -- Update this URL with your Replit URL
-        local webhookUrl = "https://replit.com/@solartrack1312/SoggyFluidFields/verify"
+        -- Use your actual Replit URL
+        local webhookUrl = "https://soggyfluidfields.solartrack1312.repl.co/verify"
         
         local data = {
-            ["key"] = key,
-            ["hwid"] = game:GetService("RbxAnalyticsService"):GetClientId(),
-            ["username"] = game.Players.LocalPlayer.Name,
-            ["userid"] = game.Players.LocalPlayer.UserId,
+            ["key"] = key
         }
         
-        print("Sending verification request with data:", game:GetService("HttpService"):JSONEncode(data))
+        -- Debug print
+        print("Attempting to verify key:", key)
         
         local response = syn.request({
             Url = webhookUrl,
@@ -26,10 +24,15 @@ local function verifyKey(key)
             Body = game:GetService("HttpService"):JSONEncode(data)
         })
         
+        -- Debug print
         print("Server response:", response.Body)
         
         return response.Body == "valid"
     end)
+    
+    if not success then
+        print("Verification error:", response)
+    end
     
     return success and response
 end
