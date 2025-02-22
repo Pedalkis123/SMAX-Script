@@ -7,7 +7,7 @@ const app = express();
 // Enable JSON body parsing
 app.use(express.json());
 
-// Connect to MongoDB
+// Connect to MongoDB with your connection string
 mongoose.connect(process.env.MONGODB_URI, {
     useNewUrlParser: true,
     useUnifiedTopology: true
@@ -25,10 +25,12 @@ const adminSchema = new mongoose.Schema({
 
 const Admin = mongoose.model('Admin', adminSchema);
 
-// Key schema (expanded)
+// Key schema (updated with HWID tracking)
 const keySchema = new mongoose.Schema({
     key: { type: String, required: true, unique: true },
     hwid: String,
+    lastHwidReset: Date,
+    hwidResetCount: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now },
     expiresAt: Date,
     type: String,
@@ -120,6 +122,9 @@ app.get('/admin', (req, res) => {
                                 <th>Email</th>
                                 <th>Created</th>
                                 <th>Expires</th>
+                                <th>HWID</th>
+                                <th>Last Reset</th>
+                                <th>Reset Count</th>
                                 <th>Uses</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -204,12 +209,16 @@ app.get('/admin', (req, res) => {
                                     <td>\${key.email || '-'}</td>
                                     <td>\${new Date(key.createdAt).toLocaleDateString()}</td>
                                     <td>\${key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : 'Never'}</td>
+                                    <td>\${key.hwid || 'Not Set'}</td>
+                                    <td>\${key.lastHwidReset ? new Date(key.lastHwidReset).toLocaleDateString() : 'Never'}</td>
+                                    <td>\${key.hwidResetCount}</td>
                                     <td>\${key.uses}</td>
                                     <td>\${key.active ? 'Active' : 'Revoked'}</td>
                                     <td>
                                         <button onclick="revokeKey('\${key.key}')" \${!key.active ? 'disabled' : ''}>
                                             \${key.active ? 'Revoke' : 'Revoked'}
                                         </button>
+                                        <button onclick="resetHWID('\${key.key}')">Reset HWID</button>
                                     </td>
                                 \`;
                                 tbody.appendChild(tr);
@@ -232,6 +241,22 @@ app.get('/admin', (req, res) => {
                         }
                     } catch (err) {
                         alert('Error revoking key');
+                    }
+                }
+
+                async function resetHWID(key) {
+                    try {
+                        const response = await fetch(\`/admin/reset-hwid/\${key}\`, {
+                            method: 'POST',
+                            headers: { 'x-admin-token': token }
+                        });
+                        
+                        if (response.ok) {
+                            alert('HWID reset successful');
+                            loadKeys();
+                        }
+                    } catch (err) {
+                        alert('Error resetting HWID');
                     }
                 }
 
@@ -333,7 +358,103 @@ app.get('/keys', async (req, res) => {
     }
 });
 
-// Verify key endpoint (updated with more security)
+// Function to generate email content
+function generateEmailContent(key) {
+    return `Thank you for purchasing SMAX!
+
+Your unique key is: ${key}
+
+Instructions:
+1. Launch Roblox
+2. Execute the script
+3. Enter your key when prompted
+4. Enjoy!
+
+Important:
+- This key is unique to you
+- Do not share your key
+- Join our Discord for support: https://discord.gg/ebwwsfzKyh`;
+}
+
+// Shoppy webhook endpoint
+app.post('/new-purchase', async (req, res) => {
+    try {
+        const { email, product_id } = req.body;
+
+        // Generate new key
+        const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+        
+        // Save key to database
+        await Key.create({
+            key,
+            email,
+            type: 'purchased',
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            active: true
+        });
+
+        // Send email (using your preferred email service)
+        // Example using nodemailer:
+        const emailContent = generateEmailContent(key);
+        // ... send email code here ...
+
+        console.log('New purchase key generated:', key);
+        res.send('OK');
+    } catch (err) {
+        console.error('Error processing purchase:', err);
+        res.status(500).send('Error');
+    }
+});
+
+// HWID reset endpoint
+app.post('/reset-hwid', async (req, res) => {
+    const { key } = req.body;
+    
+    try {
+        const keyData = await Key.findOne({ key });
+        if (!keyData || !keyData.active) return res.send('invalid_key');
+
+        // Check if 24 hours have passed since last reset
+        if (keyData.lastHwidReset) {
+            const hoursSinceReset = (Date.now() - keyData.lastHwidReset) / (1000 * 60 * 60);
+            if (hoursSinceReset < 24) {
+                return res.send(`wait_${Math.ceil(24 - hoursSinceReset)}`);
+            }
+        }
+
+        // Reset HWID
+        keyData.hwid = null;
+        keyData.lastHwidReset = new Date();
+        keyData.hwidResetCount += 1;
+        await keyData.save();
+        
+        res.send('success');
+    } catch (err) {
+        res.status(500).send('Error');
+    }
+});
+
+// Admin HWID reset endpoint
+app.post('/admin/reset-hwid/:key', verifyAdmin, async (req, res) => {
+    try {
+        await Key.updateOne(
+            { key: req.params.key }, 
+            { 
+                $set: { 
+                    hwid: null,
+                    lastHwidReset: new Date()
+                },
+                $inc: { hwidResetCount: 1 }
+            }
+        );
+        res.send('HWID reset successful');
+    } catch (err) {
+        res.status(500).send('Error resetting HWID');
+    }
+});
+
+// Updated verify endpoint with HWID check
 app.post('/verify', async (req, res) => {
     const { key, hwid } = req.body;
     
@@ -360,17 +481,6 @@ app.post('/verify', async (req, res) => {
         console.error(err);
         res.status(500).send('Error');
     }
-});
-
-// New purchase endpoint (for Shoppy webhook)
-app.post('/new-purchase', (req, res) => {
-    const key = generateKey();
-    validKeys.set(key, {
-        date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        email: req.body.email
-    });
-    console.log('New purchase key generated:', key);
-    res.send('OK');
 });
 
 app.get('/setup-admin', async (req, res) => {
