@@ -4,16 +4,16 @@ local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local Players = game:GetService("Players")
 
 local function verifyKey(key)
+    local HttpService = game:GetService("HttpService")
+    
     local success, response = pcall(function()
-        -- Update to your new Render URL
         local webhookUrl = "https://smax-script.onrender.com/verify"
         
         local data = {
             ["key"] = key
         }
         
-        -- Debug print
-        print("Attempting to verify key:", key)
+        print("Sending data:", HttpService:JSONEncode(data))
         
         local response = syn.request({
             Url = webhookUrl,
@@ -21,22 +21,24 @@ local function verifyKey(key)
             Headers = {
                 ["Content-Type"] = "application/json"
             },
-            Body = game:GetService("HttpService"):JSONEncode(data)
+            Body = HttpService:JSONEncode(data)
         })
         
-        -- Debug print
-        print("Server response status:", response.StatusCode)
-        print("Server response body:", response.Body)
-        
-        -- Check if the response is what we expect
-        if response.StatusCode == 200 then
-            return response.Body == "valid"
+        if response then
+            print("Response Status:", response.StatusCode)
+            print("Response Headers:", HttpService:JSONEncode(response.Headers))
+            print("Response Body:", response.Body)
+            
+            if response.StatusCode == 200 then
+                return response.Body == "valid"
+            end
         end
+        
         return false
     end)
     
     if not success then
-        print("Verification error:", response)
+        print("Request failed:", response)
         return false
     end
     
