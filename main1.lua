@@ -7,6 +7,7 @@ local CoreGui = game:GetService("CoreGui")
 
 -- Safe location CFrame
 local SAFE_LOCATION = CFrame.new(-3130, 867, -171)
+local FLYWOOD_FOREST_PLACE_ID = 16992122108
 
 -- Load libraries and continue with the rest of the script only if we're in the main game
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
@@ -59,64 +60,20 @@ local Tabs = {
 -- Create Main GroupBox
 local MainBox = Tabs.Main:AddLeftGroupbox('Utilities')
 
--- Add Safe Location Teleport Button
-MainBox:AddButton('Teleport to Safe Location', function()
-    if LocalPlayer.Character then
-        LocalPlayer.Character:PivotTo(SAFE_LOCATION)
-    end
-end)
-
-MainBox:AddButton('Reset Character and TP back', function()
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild('Humanoid') then
-        -- Store current position
-        local currentPosition = LocalPlayer.Character:GetPivot()
-        
-        -- Kill character
-        LocalPlayer.Character.Humanoid.Health = 0
-        
-        -- Wait for respawn and restore position
-        task.spawn(function()
-            LocalPlayer.CharacterAdded:Wait()
-            task.wait(0.5) -- Wait for character to load
-            if LocalPlayer.Character then
-                LocalPlayer.Character:PivotTo(currentPosition)
-            end
-        end)
-    end
-end)
-
--- ESP Settings
+-- Create GroupBoxes (define all boxes before adding features)
+local MovementBox = Tabs.Player:AddLeftGroupbox('Movement')
+local StaminaBox = Tabs.Player:AddRightGroupbox('Stamina')
 local ESPSettings = Tabs.ESP:AddLeftGroupbox('ESP Settings')
 local ESPCustomization = Tabs.ESP:AddRightGroupbox('ESP Customization')
+local ServerHopBox = Tabs.Main:AddRightGroupbox('Server')
+
+-- Variables for features
 local espRange = 50000
 local rainbowConnection = nil
-
--- ESP Variables
+local noFallDamageConnection = nil
 local entityEspList = {}
-local maid = {
-    _tasks = {},
-    
-    GiveTask = function(self, task)
-        table.insert(self._tasks, task)
-        return task
-    end,
-    
-    DoCleaning = function(self)
-        for _, task in pairs(self._tasks) do
-            if typeof(task) == "RBXScriptConnection" then
-                task:Disconnect()
-            elseif typeof(task) == "function" then
-                task()
-            elseif task.Destroy then
-                task:Destroy()
-            end
-        end
-        table.clear(self._tasks)
-    end
-}
 
 -- Create GroupBoxes
-local StaminaBox = Tabs.Player:AddRightGroupbox('Stamina')
 local ChestFarmBox = Tabs.Main:AddLeftGroupbox('Chest Farm')
 local CombatBox = Tabs.Main:AddLeftGroupbox('Combat')
 
@@ -863,9 +820,7 @@ Players.PlayerRemoving:Connect(function(player)
             break
         end
     end
-end
-
-local MovementBox = Tabs.Player:AddLeftGroupbox('Movement')  -- Define MovementBox first
+end)
 
 -- Create UI Elements for Movement
 MovementBox:AddToggle('FlyToggle', {
@@ -1086,9 +1041,6 @@ ThemeManager:ApplyToTab(Tabs['UI Settings'])
 SaveManager:LoadAutoloadConfig()
 
 -- Main tab groupboxes
-local ServerHopBox = Tabs.Main:AddRightGroupbox('Server')
-
--- Server buttons remain the same
 ServerHopBox:AddButton('Server Hop', function()
     serverHop()
 end)
@@ -1243,9 +1195,6 @@ local MaterialFarmBox = Tabs.Main:AddRightGroupbox('Material Farm')
 -- Variables for material farming
 local isMaterialFarming = false
 local farmThread = nil
-
--- Safe location CFrame
-local SAFE_LOCATION = CFrame.new(-3130, 867, -171)
 
 -- Function to get all available materials
 local function getMaterialNames()
@@ -1469,25 +1418,13 @@ setupNPCButtons()
 local noFallDamageConnection = nil  -- Store the connection globally
 
 local function noFallDamage(toggle)
-    -- Clean up existing connection if it exists
     if noFallDamageConnection then
         noFallDamageConnection:Disconnect()
         noFallDamageConnection = nil
     end
     
-    -- Restore default states when turned off
-    local character = LocalPlayer.Character
-    if character then
-        local humanoid = character:FindFirstChildWhichIsA('Humanoid')
-        if humanoid then
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, true)
-            humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true)
-        end
-    end
-
     if not toggle then return end
-
-    -- Create new connection when toggled on
+    
     noFallDamageConnection = RunService.Heartbeat:Connect(function()
         local character = LocalPlayer.Character
         if not character then return end
@@ -1495,24 +1432,20 @@ local function noFallDamage(toggle)
         local humanoid = character:FindFirstChildWhichIsA('Humanoid')
         if not humanoid then return end
 
-        -- Prevent fall damage states
         humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
         humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
 
-        -- Additional fall protection with faster fall
         local rootPart = character:FindFirstChild('HumanoidRootPart')
         if not rootPart then return end
 
-        -- Allow faster falling but prevent lethal velocity
         if rootPart.Velocity.Y < -100 then
             rootPart.Velocity = Vector3.new(
                 rootPart.Velocity.X,
-                math.clamp(rootPart.Velocity.Y, -100, 0), -- Increased fall speed range
+                math.clamp(rootPart.Velocity.Y, -100, 0),
                 rootPart.Velocity.Z
             )
         end
 
-        -- Remove fall damage effects
         for _, effect in ipairs(character:GetChildren()) do
             if effect.Name:match("Fall") or effect.Name:match("Ragdoll") then
                 effect:Destroy()
