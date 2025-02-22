@@ -375,10 +375,10 @@ app.post('/new-purchase', (req, res) => {
 
 app.get('/setup-admin', async (req, res) => {
     try {
-        const hashedPassword = await bcrypt.hash('your_admin_password', 10);
+        const hashedPassword = await bcrypt.hash('admin1312', 10);
         await Admin.create({
             username: 'admin1312',
-            password: admin1312
+            password: hashedPassword
         });
         res.send('Admin created successfully');
     } catch (err) {
