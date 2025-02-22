@@ -116,7 +116,6 @@ local maid = {
 }
 
 -- Create GroupBoxes
-local MovementBox = Tabs.Player:AddLeftGroupbox('Movement')
 local StaminaBox = Tabs.Player:AddRightGroupbox('Stamina')
 local ChestFarmBox = Tabs.Main:AddLeftGroupbox('Chest Farm')
 local CombatBox = Tabs.Main:AddLeftGroupbox('Combat')
@@ -866,6 +865,8 @@ Players.PlayerRemoving:Connect(function(player)
     end
 end
 
+local MovementBox = Tabs.Player:AddLeftGroupbox('Movement')  -- Define MovementBox first
+
 -- Create UI Elements for Movement
 MovementBox:AddToggle('FlyToggle', {
     Text = 'Flight',
@@ -889,12 +890,27 @@ Options.FlySpeedSlider:OnChanged(function(value)
     currentFlySpeed = value
 end)
 
-MovementBox:AddToggle('SpeedToggle', {
+MovementBox:AddToggle('SpeedHack', {
     Text = 'Speed Hack',
     Default = false,
-    Tooltip = 'Enables speed hack',
-    Callback = function(Value)
-        speedHack(Value)
+    Tooltip = 'Increases movement speed',
+    Callback = function(toggle)
+        if toggle then
+            -- Speed hack implementation
+            speedHackConnection = RunService.Heartbeat:Connect(function()
+                if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                    LocalPlayer.Character.Humanoid.WalkSpeed = DEFAULT_SPEED * 2
+                end
+            end)
+        else
+            if speedHackConnection then
+                speedHackConnection:Disconnect()
+                speedHackConnection = nil
+            end
+            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+                LocalPlayer.Character.Humanoid.WalkSpeed = DEFAULT_SPEED
+            end
+        end
     end
 })
 
@@ -1035,7 +1051,7 @@ LocalPlayer.CharacterAdded:Connect(function(newCharacter)
     if Toggles.NoClip.Value then
         noClip(true)
     end
-    if Toggles.SpeedToggle.Value then
+    if Toggles.SpeedHack.Value then
         speedHack(true)
     end
     if Toggles.JumpToggle.Value then
