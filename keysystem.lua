@@ -13,13 +13,16 @@ local function verifyKey(key)
             ["key"] = key
         }
         
-        local response = syn.request({
+        local jsonData = HttpService:JSONEncode(data)
+        print("Sending request with data:", jsonData)
+        
+        local response = HttpService:RequestAsync({
             Url = webhookUrl,
             Method = "POST",
             Headers = {
                 ["Content-Type"] = "application/json"
             },
-            Body = HttpService:JSONEncode(data)
+            Body = jsonData
         })
         
         print("Response received:", response.Body)
