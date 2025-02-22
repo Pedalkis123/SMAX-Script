@@ -5,8 +5,8 @@ local Players = game:GetService("Players")
 
 local function verifyKey(key)
     local success, response = pcall(function()
-        -- Use your actual Replit URL
-        local webhookUrl = "https://soggyfluidfields.solartrack1312.repl.co/verify"
+        -- Update to your new Render URL
+        local webhookUrl = "https://smax-script.onrender.com/verify"
         
         local data = {
             ["key"] = key
