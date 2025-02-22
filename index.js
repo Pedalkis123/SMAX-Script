@@ -1,23 +1,25 @@
 const express = require('express');
 const app = express();
+
+// Enable JSON body parsing
 app.use(express.json());
 
 // Store valid keys
 const validKeys = new Map();
 
-// Add a root route
+// Root endpoint
 app.get('/', (req, res) => {
-    res.send('Key System Server Running');
+    res.send('SMAX Key System Server Running');
 });
 
-// Generate test key route
+// Generate test key
 app.get('/generate-test', (req, res) => {
     const key = generateKey();
     validKeys.set(key, {
-        date: new Date(),
-        type: 'test'
+        date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        type: "test"
     });
-    console.log('Generated new test key:', key);
+    console.log('Generated test key:', key);
     res.send(key);
 });
 
@@ -31,24 +33,15 @@ app.get('/keys', (req, res) => {
     res.json(keys);
 });
 
-// Endpoint for Shoppy webhook
-app.post('/new-purchase', (req, res) => {
-    const key = generateKey();
-    validKeys.set(key, {
-        date: new Date(),
-        email: req.body.email
-    });
-    console.log('New purchase key generated:', key);
-    res.send('OK');
-});
-
-// Endpoint for script verification
+// Verify key endpoint
 app.post('/verify', (req, res) => {
     const { key } = req.body;
     console.log('Received verification request for key:', key);
     console.log('Valid keys:', Array.from(validKeys.keys()));
     console.log('Is key valid?', validKeys.has(key));
-
+    
+    res.setHeader('Content-Type', 'text/plain');
+    
     if (validKeys.has(key)) {
         console.log('Key verified successfully');
         res.send('valid');
@@ -58,6 +51,17 @@ app.post('/verify', (req, res) => {
     }
 });
 
+// New purchase endpoint (for Shoppy webhook)
+app.post('/new-purchase', (req, res) => {
+    const key = generateKey();
+    validKeys.set(key, {
+        date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        email: req.body.email
+    });
+    console.log('New purchase key generated:', key);
+    res.send('OK');
+});
+
 // Clear all keys (for testing)
 app.get('/clear-keys', (req, res) => {
     validKeys.clear();
@@ -65,11 +69,26 @@ app.get('/clear-keys', (req, res) => {
     res.send('All keys cleared');
 });
 
+// Key generator function
 function generateKey() {
-    return Math.random().toString(36).substring(2);
+    return Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
 }
 
-const PORT = 3000;
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(500).send('Internal Server Error');
+});
+
+// Handle CORS
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+    next();
+});
+
+// Start server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log('Available endpoints:');
