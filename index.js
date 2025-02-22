@@ -1,11 +1,36 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const app = express();
 
 // Enable JSON body parsing
 app.use(express.json());
 
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+}).then(() => {
+    console.log('Connected to MongoDB');
+}).catch(err => {
+    console.error('MongoDB connection error:', err);
+});
+
+// Key schema
+const keySchema = new mongoose.Schema({
+    key: { type: String, required: true, unique: true },
+    hwid: String,
+    date: Date,
+    type: String,
+    email: String
+});
+
+const Key = mongoose.model('Key', keySchema);
+
 // Store valid keys
 const validKeys = new Map();
+
+// Get script from environment variable
+const mainScript = process.env.MAIN_SCRIPT;
 
 // Root endpoint
 app.get('/', (req, res) => {
@@ -13,41 +38,53 @@ app.get('/', (req, res) => {
 });
 
 // Generate test key
-app.get('/generate-test', (req, res) => {
-    const key = generateKey();
-    validKeys.set(key, {
-        date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
-        type: "test"
-    });
-    console.log('Generated test key:', key);
-    res.send(key);
+app.get('/generate-test', async (req, res) => {
+    const key = Math.random().toString(36).substring(2);
+    try {
+        await Key.create({
+            key,
+            date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+            type: "test"
+        });
+        console.log('Generated test key:', key);
+        res.send(key);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error generating key');
+    }
 });
 
 // View all keys
-app.get('/keys', (req, res) => {
-    const keys = Array.from(validKeys.entries()).map(([key, data]) => ({
-        key,
-        ...data
-    }));
-    console.log('Current keys:', keys);
-    res.json(keys);
+app.get('/keys', async (req, res) => {
+    try {
+        const keys = await Key.find();
+        res.json(keys);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error fetching keys');
+    }
 });
 
 // Verify key endpoint
-app.post('/verify', (req, res) => {
-    const { key } = req.body;
-    console.log('Received verification request for key:', key);
-    console.log('Valid keys:', Array.from(validKeys.keys()));
-    console.log('Is key valid?', validKeys.has(key));
-    
-    res.setHeader('Content-Type', 'text/plain');
-    
-    if (validKeys.has(key)) {
-        console.log('Key verified successfully');
+app.post('/verify', async (req, res) => {
+    const { key, hwid } = req.body;
+    try {
+        const keyData = await Key.findOne({ key });
+        if (!keyData) return res.send('invalid_key');
+        
+        if (keyData.hwid && keyData.hwid !== hwid) {
+            return res.send('invalid_hwid');
+        }
+        
+        if (!keyData.hwid) {
+            keyData.hwid = hwid;
+            await keyData.save();
+        }
+        
         res.send('valid');
-    } else {
-        console.log('Invalid key attempted');
-        res.send('invalid');
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Error');
     }
 });
 
@@ -67,6 +104,11 @@ app.get('/clear-keys', (req, res) => {
     validKeys.clear();
     console.log('All keys cleared');
     res.send('All keys cleared');
+});
+
+// Get script endpoint (protected)
+app.get('/getscript', (req, res) => {
+    res.send(mainScript);
 });
 
 // Key generator function
@@ -98,4 +140,5 @@ app.listen(PORT, () => {
     console.log('- POST /verify        (Verify a key)');
     console.log('- POST /new-purchase  (Generate key for purchase)');
     console.log('- GET  /clear-keys    (Clear all keys)');
+    console.log('- GET  /getscript     (Get protected script)');
 });
