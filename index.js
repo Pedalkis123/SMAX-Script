@@ -546,24 +546,32 @@ app.post('/sellix-webhook', async (req, res) => {
         if (data.status === 'COMPLETED') {
             const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
             
+            // Create key in database
             await Key.create({
                 key,
                 email: data.customer_email,
                 type: 'purchased',
                 createdAt: new Date(),
-                expiresAt: null, // Set to null for lifetime keys
+                expiresAt: null, // Lifetime key
                 active: true,
                 purchaseId: data.uniqid
             });
 
-            // Send email to customer
+            // Generate email content with the key
             const emailContent = generateEmailContent(key);
-            // Implement email sending here
+
+            // Send response to Sellix with the email content
+            res.status(200).json({
+                status: 200,
+                message: 'OK',
+                customer_email: data.customer_email,
+                custom_message: emailContent
+            });
 
             console.log('New Sellix purchase key generated:', key);
+        } else {
+            res.status(200).send('OK');
         }
-        
-        res.status(200).send('OK');
     } catch (err) {
         console.error('Sellix webhook error:', err);
         res.status(500).send('Error');
