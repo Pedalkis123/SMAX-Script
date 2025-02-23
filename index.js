@@ -366,9 +366,7 @@ app.get('/keys', async (req, res) => {
 
 // Function to generate email content
 function generateEmailContent(key) {
-    return `Thank you for purchasing SMAX!
-
-Your unique key is: ${key}
+    return `Thank you for purchasing SMAX! Your unique key is: ${key}
 
 Instructions:
 1. Launch Roblox
@@ -387,8 +385,10 @@ app.post('/new-purchase', async (req, res) => {
     try {
         const { email, product_id } = req.body;
 
-        // Generate new key
-        const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+        // Generate new key (more secure)
+        const key = Math.random().toString(36).substring(2) + 
+                   Math.random().toString(36).substring(2) + 
+                   Math.random().toString(36).substring(2);
         
         // Save key to database
         await Key.create({
@@ -396,17 +396,21 @@ app.post('/new-purchase', async (req, res) => {
             email,
             type: 'purchased',
             createdAt: new Date(),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-            active: true
+            expiresAt: null, // Lifetime key
+            active: true,
+            purchaseId: req.body.order_id
         });
 
-        // Send email (using your preferred email service)
-        // Example using nodemailer:
-        const emailContent = generateEmailContent(key);
-        // ... send email code here ...
+        // Return the email content to Shoppy
+        res.json({
+            message: generateEmailContent(key)
+        });
 
-        console.log('New purchase key generated:', key);
-        res.send('OK');
+        console.log('New purchase key generated:', {
+            key: key,
+            email: email,
+            orderId: req.body.order_id
+        });
     } catch (err) {
         console.error('Error processing purchase:', err);
         res.status(500).send('Error');
@@ -543,7 +547,10 @@ app.post('/sellix-webhook', async (req, res) => {
         const { data } = req.body;
         
         if (data.status === 'COMPLETED') {
-            const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+            // Generate a random key (longer and more secure)
+            const key = Math.random().toString(36).substring(2) + 
+                       Math.random().toString(36).substring(2) + 
+                       Math.random().toString(36).substring(2);
             
             // Create key in database
             await Key.create({
@@ -556,7 +563,7 @@ app.post('/sellix-webhook', async (req, res) => {
                 purchaseId: data.uniqid
             });
 
-            // Generate email content with the key
+            // Generate email content with the actual key
             const emailContent = generateEmailContent(key);
 
             // Send response to Sellix with the email content
@@ -564,10 +571,16 @@ app.post('/sellix-webhook', async (req, res) => {
                 status: 200,
                 message: 'OK',
                 customer_email: data.customer_email,
-                custom_message: emailContent
+                custom_message: emailContent,
+                download_link: null,
+                file_name: null
             });
 
-            console.log('New Sellix purchase key generated:', key);
+            console.log('New key generated and sent:', {
+                key: key,
+                email: data.customer_email,
+                purchaseId: data.uniqid
+            });
         } else {
             res.status(200).send('OK');
         }
