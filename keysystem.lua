@@ -5,94 +5,134 @@ local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local RbxAnalytics = game:GetService("RbxAnalyticsService")
 
--- Function to make HTTP requests that works across executors
+-- Debug function
+local function debugLog(...)
+    local args = {...}
+    local str = ""
+    for i, v in ipairs(args) do
+        str = str .. tostring(v) .. " "
+    end
+    print("[DEBUG]", str)
+    -- Also write to a file for persistent logging
+    if writefile then
+        appendfile("smax_debug.txt", os.date("%Y-%m-%d %H:%M:%S") .. " " .. str .. "\n")
+    end
+end
+
+-- Function to detect executor
+local function getExecutorType()
+    local executor = "Unknown"
+    
+    if syn then executor = "Synapse X"
+    elseif KRNL_LOADED then executor = "Krnl"
+    elseif getexecutorname then executor = getexecutorname()
+    elseif identifyexecutor then executor = identifyexecutor()
+    end
+    
+    debugLog("Detected executor:", executor)
+    return executor
+end
+
+-- Get HWID based on executor
+local function getHWID()
+    debugLog("Getting HWID...")
+    local hwid
+    local executor = getExecutorType()
+    
+    if executor == "Synapse X" then
+        debugLog("Using Synapse X HWID method")
+        local response = syn.request({Url = "https://httpbin.org/get"})
+        debugLog("Synapse response:", HttpService:JSONEncode(response))
+        hwid = response.Headers["Syn-Fingerprint"]
+    elseif executor == "Krnl" then
+        debugLog("Using Krnl HWID method")
+        local response = request({Url = "https://httpbin.org/get"})
+        debugLog("Krnl response:", HttpService:JSONEncode(response))
+        hwid = response.Headers["Fingerprint"]
+    elseif executor:find("Xeno") then
+        debugLog("Using Xeno HWID method")
+        hwid = RbxAnalytics:GetClientId()
+    else
+        debugLog("Using fallback HWID method")
+        hwid = RbxAnalytics:GetClientId()
+    end
+    
+    if hwid then
+        hwid = tostring(hwid):gsub("%s+", ""):upper()
+        debugLog("Final HWID:", hwid)
+    else
+        debugLog("WARNING: Failed to get HWID!")
+    end
+    
+    return hwid
+end
+
+-- Function to make HTTP requests
 local function makeRequest(url, method, data)
+    debugLog("Making request to:", url)
+    debugLog("Method:", method)
+    debugLog("Data:", HttpService:JSONEncode(data))
+    
     local success, response = pcall(function()
-        -- Convert data to JSON
         local jsonData = HttpService:JSONEncode(data)
+        local executor = getExecutorType()
         
-        -- Synapse X
-        if syn and syn.request then
+        if executor == "Synapse X" then
+            debugLog("Using Synapse X request method")
             return syn.request({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
                 Body = jsonData
             })
-        end
-        
-        -- Krnl
-        if request then
+        elseif executor == "Krnl" then
+            debugLog("Using Krnl request method")
             return request({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
                 Body = jsonData
             })
-        end
-        
-        -- Fluxus
-        if http and http.request then
-            return http.request({
-                Url = url,
-                Method = method,
-                Headers = {["Content-Type"] = "application/json"},
-                Body = jsonData
-            })
-        end
-
-        -- Xeno
-        if http_request then
+        elseif executor:find("Xeno") then
+            debugLog("Using Xeno request method")
             return http_request({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
                 Body = jsonData
             })
+        else
+            debugLog("Using fallback request method")
+            return HttpService:RequestAsync({
+                Url = url,
+                Method = method,
+                Headers = {["Content-Type"] = "application/json"},
+                Body = jsonData
+            })
         end
-        
-        -- Generic fallback
-        return HttpService:RequestAsync({
-            Url = url,
-            Method = method,
-            Headers = {["Content-Type"] = "application/json"},
-            Body = jsonData
-        })
     end)
     
     if not success then
-        warn("Request failed:", response)
+        debugLog("Request failed:", response)
         return nil
     end
     
+    debugLog("Request successful. Response:", HttpService:JSONEncode(response))
     return response
-end
-
--- Get HWID based on executor
-local function getHWID()
-    local hwid
-    local executor = identifyexecutor and identifyexecutor() or ""
-    
-    if syn then -- Synapse X
-        hwid = syn.request({Url = "https://httpbin.org/get"}).Headers["Syn-Fingerprint"]
-    elseif executor:find("Krnl") then -- Krnl
-        hwid = request({Url = "https://httpbin.org/get"}).Headers["Fingerprint"]
-    elseif executor:find("Xeno") then -- Xeno
-        hwid = RbxAnalytics:GetClientId()
-    else -- Fallback
-        hwid = RbxAnalytics:GetClientId()
-    end
-    
-    -- Clean and standardize HWID
-    hwid = tostring(hwid):gsub("%s+", ""):upper()
-    return hwid
 end
 
 -- Verify key function
 local function verifyKey(key)
+    debugLog("Verifying key:", key)
+    local hwid = getHWID()
+    if not hwid then
+        debugLog("Failed to get HWID!")
+        return "error"
+    end
+    
     local data = {
         key = key,
-        hwid = getHWID()
+        hwid = hwid
     }
     
     local response = makeRequest(
@@ -102,9 +142,11 @@ local function verifyKey(key)
     )
     
     if response and response.Body then
+        debugLog("Verify response:", response.Body)
         return response.Body
     end
     
+    debugLog("Verify failed!")
     return "error"
 end
 
