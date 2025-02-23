@@ -2,77 +2,61 @@
 local MemStorageService = game:GetService('MemStorageService')
 local ReplicatedStorage = game:GetService('ReplicatedStorage')
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local RbxAnalytics = game:GetService("RbxAnalyticsService")
 
+-- Function to make HTTP requests that works across executors
 local function makeRequest(url, method, data)
-    local HttpService = game:GetService("HttpService")
-    
-    -- Get HWID
-    local hwid = nil
-    if syn then
-        hwid = syn.request({Url = "https://httpbin.org/get"}).Headers["Syn-Fingerprint"]
-    elseif request then
-        hwid = request({Url = "https://httpbin.org/get"}).Headers["Fingerprint"]
-    elseif http and http.request then
-        hwid = http.request({Url = "https://httpbin.org/get"}).Headers["Fingerprint"]
-    end
-    
-    if not hwid then
-        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
-    end
-    
-    -- Add HWID to data
-    if data then
-        data.hwid = hwid
-    else
-        data = {hwid = hwid}
-    end
-    
-    -- Try different request methods based on executor
     local success, response = pcall(function()
-        -- Method 1: Synapse X / Script-Ware
+        -- Convert data to JSON
+        local jsonData = HttpService:JSONEncode(data)
+        
+        -- Synapse X
         if syn and syn.request then
             return syn.request({
                 Url = url,
                 Method = method,
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(data)
+                Headers = {["Content-Type"] = "application/json"},
+                Body = jsonData
             })
         end
         
-        -- Method 2: KRNL / Other
+        -- Krnl
         if request then
             return request({
                 Url = url,
                 Method = method,
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(data)
+                Headers = {["Content-Type"] = "application/json"},
+                Body = jsonData
             })
         end
         
-        -- Method 3: Fluxus
+        -- Fluxus
         if http and http.request then
             return http.request({
                 Url = url,
                 Method = method,
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(data)
+                Headers = {["Content-Type"] = "application/json"},
+                Body = jsonData
+            })
+        end
+
+        -- Xeno
+        if http_request then
+            return http_request({
+                Url = url,
+                Method = method,
+                Headers = {["Content-Type"] = "application/json"},
+                Body = jsonData
             })
         end
         
-        -- Fallback: HttpService (if game allows HTTP requests)
+        -- Generic fallback
         return HttpService:RequestAsync({
             Url = url,
             Method = method,
-            Headers = {
-                ["Content-Type"] = "application/json"
-            },
-            Body = HttpService:JSONEncode(data)
+            Headers = {["Content-Type"] = "application/json"},
+            Body = jsonData
         })
     end)
     
@@ -84,51 +68,44 @@ local function makeRequest(url, method, data)
     return response
 end
 
--- Add this function to standardize HWID across executors
+-- Get HWID based on executor
 local function getHWID()
-    local hwid = nil
+    local hwid
+    local executor = identifyexecutor and identifyexecutor() or ""
     
-    -- Try different HWID methods
-    if syn then
-        hwid = syn.request({Url = "https://httpbin.org/get"}).Body:find("Syn%-Fingerprint: ([%w-]+)") 
-    elseif http_request then
-        hwid = http_request({Url = "https://httpbin.org/get"}).Body:find("Syn%-Fingerprint: ([%w-]+)")
-    elseif identifyexecutor then
-        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
+    if syn then -- Synapse X
+        hwid = syn.request({Url = "https://httpbin.org/get"}).Headers["Syn-Fingerprint"]
+    elseif executor:find("Krnl") then -- Krnl
+        hwid = request({Url = "https://httpbin.org/get"}).Headers["Fingerprint"]
+    elseif executor:find("Xeno") then -- Xeno
+        hwid = RbxAnalytics:GetClientId()
+    else -- Fallback
+        hwid = RbxAnalytics:GetClientId()
     end
     
-    -- Fallback to basic HWID if none found
-    if not hwid then
-        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
-    end
-    
-    -- Clean and format HWID
-    hwid = string.upper(string.gsub(hwid, "%s+", ""))
-    
+    -- Clean and standardize HWID
+    hwid = tostring(hwid):gsub("%s+", ""):upper()
     return hwid
 end
 
--- Update your verify request
+-- Verify key function
 local function verifyKey(key)
-    local hwid = getHWID()
+    local data = {
+        key = key,
+        hwid = getHWID()
+    }
     
-    local response = http_request({
-        Url = "https://smax-script.onrender.com/verify",
-        Method = "POST",
-        Headers = {
-            ["Content-Type"] = "application/json"
-        },
-        Body = game:GetService("HttpService"):JSONEncode({
-            key = key,
-            hwid = hwid
-        })
-    })
+    local response = makeRequest(
+        "https://smax-script.onrender.com/verify",
+        "POST",
+        data
+    )
     
-    if response.StatusCode == 200 then
+    if response and response.Body then
         return response.Body
-    else
-        return "error"
     end
+    
+    return "error"
 end
 
 local function resetHWID(key)
