@@ -447,51 +447,90 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Modified purchase webhook
+// Test the email configuration on startup
+transporter.verify(function(error, success) {
+    if (error) {
+        console.error('Email configuration error:', error);
+    } else {
+        console.log('Email server is ready to send messages');
+    }
+});
+
+// Modified purchase webhook with Shoppy data structure
 app.post('/new-purchase', async (req, res) => {
     try {
-        console.log('Received webhook:', req.body);
+        console.log('=== NEW PURCHASE WEBHOOK START ===');
+        console.log('Request body:', req.body);
+        console.log('Environment variables check:');
+        console.log('EMAIL_USER set:', !!process.env.EMAIL_USER);
+        console.log('EMAIL_PASS set:', !!process.env.EMAIL_PASS);
         
-        const data = req.body;
-        if (!data || !data.email) {
-            console.error('Invalid webhook data received');
+        // Extract email from Shoppy's nested structure
+        const email = req.body?.data?.order?.email;
+        const orderId = req.body?.data?.order?.id;
+
+        if (!email) {
+            console.error('❌ Invalid webhook data - missing email');
             return res.status(400).send('Invalid data');
         }
+
+        console.log('✓ Valid webhook data received');
+        console.log('Buyer email:', email);
 
         // Find an unassigned key
         const preGenKey = await PreGeneratedKey.findOne({ isAssigned: false });
         if (!preGenKey) {
-            console.error('No available keys!');
+            console.error('❌ No available keys in database');
             return res.status(500).send('No available keys');
         }
 
-        // Create entry in main keys collection with exact format
-        await Key.create({
-            key: preGenKey.key,
-            expiresAt: null,
-            type: 'lifetime',
-            email: data.email,
-            uses: 0,
-            active: true,
-            createdAt: new Date(),
-            hwid: null,
-            hwidResetCount: 0,
-            lastHwidReset: null
+        console.log('✓ Found unassigned key:', preGenKey.key);
+
+        try {
+            // Create entry in main keys collection
+            await Key.create({
+                key: preGenKey.key,
+                expiresAt: null,
+                type: 'lifetime',
+                email: email,
+                uses: 0,
+                active: true,
+                createdAt: new Date(),
+                hwid: null,
+                hwidResetCount: 0,
+                lastHwidReset: null
+            });
+            console.log('✓ Key saved to database');
+        } catch (dbErr) {
+            console.error('❌ Database error:', dbErr);
+            throw dbErr;
+        }
+
+        try {
+            // Mark the pre-generated key as assigned
+            preGenKey.isAssigned = true;
+            preGenKey.assignedTo = email;
+            preGenKey.assignedAt = new Date();
+            preGenKey.purchaseId = orderId;
+            await preGenKey.save();
+            console.log('✓ Pre-generated key marked as assigned');
+        } catch (assignErr) {
+            console.error('❌ Error marking key as assigned:', assignErr);
+            throw assignErr;
+        }
+
+        console.log('📧 Attempting to send email...');
+        console.log('Email configuration:', {
+            from: process.env.EMAIL_USER,
+            to: email
         });
 
-        // Mark the pre-generated key as assigned
-        preGenKey.isAssigned = true;
-        preGenKey.assignedTo = data.email;
-        preGenKey.assignedAt = new Date();
-        preGenKey.purchaseId = data.order_id || data.id;
-        await preGenKey.save();
-
-        // Send email
-        const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: data.email,
-            subject: 'Your SMAX Purchase',
-            text: `Thank you for purchasing SMAX! Your unique key is: ${preGenKey.key}
+        try {
+            const mailOptions = {
+                from: process.env.EMAIL_USER,
+                to: email,
+                subject: 'Your SMAX Purchase',
+                text: `Thank you for purchasing SMAX! Your unique key is: ${preGenKey.key}
 
 Instructions:
 1. Launch Roblox
@@ -503,21 +542,24 @@ Important:
 - This key is unique to you
 - Do not share your key
 - Join our Discord for support: https://discord.gg/ebwwsfzKyh`
-        };
+            };
 
-        await transporter.sendMail(mailOptions);
+            const info = await transporter.sendMail(mailOptions);
+            console.log('✓ Email sent successfully');
+            console.log('Email response:', info);
+        } catch (emailErr) {
+            console.error('❌ Email sending failed');
+            console.error('Error details:', emailErr);
+            console.error('Full error:', JSON.stringify(emailErr, null, 2));
+        }
 
-        // Send success response to Shoppy
         res.status(200).send('OK');
+        console.log('✓ Purchase webhook completed successfully');
+        console.log('=== NEW PURCHASE WEBHOOK END ===');
 
-        console.log('Key assigned and email sent:', {
-            key: preGenKey.key,
-            email: data.email,
-            orderId: data.order_id || data.id
-        });
     } catch (err) {
-        console.error('Error processing purchase:', err);
-        console.error(err.stack);
+        console.error('❌ FATAL ERROR in purchase webhook');
+        console.error('Error stack:', err.stack);
         res.status(500).send('Error');
     }
 });
