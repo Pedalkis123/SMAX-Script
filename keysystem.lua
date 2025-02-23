@@ -1,209 +1,95 @@
 -- Services
-local MemStorageService = game:GetService('MemStorageService')
-local ReplicatedStorage = game:GetService('ReplicatedStorage')
-local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local RbxAnalytics = game:GetService("RbxAnalyticsService")
 
--- Debug function
-local function debugLog(...)
-    local args = {...}
-    local str = ""
-    for i, v in ipairs(args) do
-        str = str .. tostring(v) .. " "
-    end
-    print("[DEBUG]", str)
-    -- Also write to a file for persistent logging
-    if writefile then
-        appendfile("smax_debug.txt", os.date("%Y-%m-%d %H:%M:%S") .. " " .. str .. "\n")
-    end
+-- Simple debug
+local function debug(...)
+    print("[SMAX]", ...)
 end
 
--- Function to detect executor
-local function getExecutorType()
-    local executor = "Unknown"
-    
-    if syn then executor = "Synapse X"
-    elseif KRNL_LOADED then executor = "Krnl"
-    elseif getexecutorname then executor = getexecutorname()
-    elseif identifyexecutor then executor = identifyexecutor()
-    end
-    
-    debugLog("Detected executor:", executor)
-    return executor
-end
-
--- Get HWID based on executor
-local function getHWID()
-    debugLog("Getting HWID...")
-    local hwid
-    local executor = getExecutorType()
-    
-    if executor == "Synapse X" then
-        debugLog("Using Synapse X HWID method")
-        local response = syn.request({Url = "https://httpbin.org/get"})
-        debugLog("Synapse response:", HttpService:JSONEncode(response))
-        hwid = response.Headers["Syn-Fingerprint"]
-    elseif executor == "Krnl" then
-        debugLog("Using Krnl HWID method")
-        local response = request({Url = "https://httpbin.org/get"})
-        debugLog("Krnl response:", HttpService:JSONEncode(response))
-        hwid = response.Headers["Fingerprint"]
-    elseif executor:find("Xeno") then
-        debugLog("Using Xeno HWID method")
-        hwid = RbxAnalytics:GetClientId()
-    else
-        debugLog("Using fallback HWID method")
-        hwid = RbxAnalytics:GetClientId()
-    end
-    
-    if hwid then
-        hwid = tostring(hwid):gsub("%s+", ""):upper()
-        debugLog("Final HWID:", hwid)
-    else
-        debugLog("WARNING: Failed to get HWID!")
-    end
-    
-    return hwid
-end
-
--- Function to make HTTP requests
-local function makeRequest(url, method, data)
-    debugLog("Making request to:", url)
-    debugLog("Method:", method)
-    debugLog("Data:", HttpService:JSONEncode(data))
-    
-    local success, response = pcall(function()
-        local jsonData = HttpService:JSONEncode(data)
-        local executor = getExecutorType()
-        
-        -- Standardize response handling for all executors
-        local rawResponse
-        
-        if executor == "Synapse X" then
-            debugLog("Using Synapse X request method")
-            rawResponse = syn.request({
-                Url = url,
-                Method = method,
-                Headers = {["Content-Type"] = "application/json"},
-                Body = jsonData
+-- Get executor's request function
+local function getRequestFunction()
+    if syn and syn.request then
+        return syn.request
+    elseif http_request then
+        return http_request
+    elseif request then
+        return request
+    elseif HttpService.RequestAsync then
+        return function(req)
+            local res = HttpService:RequestAsync({
+                Url = req.Url,
+                Method = req.Method,
+                Headers = req.Headers,
+                Body = req.Body
             })
-        elseif executor == "Krnl" then
-            debugLog("Using Krnl request method")
-            rawResponse = request({
-                Url = url,
-                Method = method,
-                Headers = {["Content-Type"] = "application/json"},
-                Body = jsonData
-            })
-        elseif executor:find("Xeno") then
-            debugLog("Using Xeno request method")
-            rawResponse = http_request({
-                Url = url,
-                Method = method,
-                Headers = {["Content-Type"] = "application/json"},
-                Body = jsonData
-            })
-        else
-            debugLog("Using fallback request method")
-            rawResponse = HttpService:RequestAsync({
-                Url = url,
-                Method = method,
-                Headers = {["Content-Type"] = "application/json"},
-                Body = jsonData
-            })
+            return {
+                StatusCode = res.StatusCode,
+                Body = res.Body
+            }
         end
-
-        -- Standardize response format
-        return {
-            Success = rawResponse.Success or rawResponse.StatusCode == 200,
-            StatusCode = rawResponse.StatusCode or 500,
-            Body = (type(rawResponse.Body) == "string" and rawResponse.Body:match("^%s*(.-)%s*$")) or "error"
-        }
-    end)
-    
-    if not success then
-        debugLog("Request failed:", response)
-        return {
-            Success = false,
-            StatusCode = 500,
-            Body = "error"
-        }
     end
-    
-    debugLog("Request successful. Response:", HttpService:JSONEncode(response))
-    return response
 end
 
--- Verify key function
-local function verifyKey(key)
-    debugLog("Verifying key:", key)
-    local hwid = getHWID()
-    if not hwid then
-        debugLog("Failed to get HWID!")
+-- Get HWID
+local function getHWID()
+    return RbxAnalytics:GetClientId()
+end
+
+-- Make request
+local function makeRequest(key)
+    local requestFunc = getRequestFunction()
+    if not requestFunc then
+        debug("No compatible request function found")
         return "error"
     end
-    
-    local data = {
+
+    local data = HttpService:JSONEncode({
         key = key,
-        hwid = hwid
-    }
-    
-    local response = makeRequest(
-        "https://smax-script.onrender.com/verify",
-        "POST",
-        data
-    )
-    
-    if response.Success and response.Body then
-        local result = response.Body
-        debugLog("Verify response:", result)
-        -- Clean up response
-        result = result:match("^%s*(.-)%s*$") -- Trim whitespace
-        if result == "valid" or result == "invalid_key" or result == "invalid_hwid" or result == "expired_key" then
-            return result
-        end
+        hwid = getHWID()
+    })
+
+    local success, response = pcall(function()
+        return requestFunc({
+            Url = "https://smax-script.onrender.com/verify",
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
+            Body = data
+        })
+    end)
+
+    if not success then
+        debug("Request failed:", response)
+        return "error"
     end
-    
-    debugLog("Verify failed!")
+
+    if response.StatusCode == 200 then
+        return response.Body
+    end
+
     return "error"
 end
 
--- Reset HWID function
-local function resetHWID(key)
-    local response = makeRequest(
-        "https://smax-script.onrender.com/reset-hwid",
-        "POST",
-        {["key"] = key}
-    )
-    
-    if response.Success and response.Body then
-        return response.Body:match("^%s*(.-)%s*$") -- Trim whitespace
-    end
-    
-    return "error"
-end
-
--- Create key system UI
+-- Create UI
 local KeySystem = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua"))()
 local Window = KeySystem:CreateWindow({
-    Title = "Key System",
+    Title = "SMAX Key System",
     Center = true,
     AutoShow = true,
 })
 
-local Tab = Window:AddTab('Key')
-local Box = Tab:AddLeftGroupbox('Verification')
-local ResetBox = Tab:AddRightGroupbox('HWID Reset')
+local Tab = Window:AddTab('Verification')
+local Box = Tab:AddLeftGroupbox('Enter Key')
 
 local keyInput = ""
-Box:AddInput('Key', {
+Box:AddInput('KeyInput', {
     Default = "",
     Numeric = false,
     Finished = false,
     Text = 'Enter your key',
     Placeholder = 'Paste key here...',
-
     Callback = function(Value)
         keyInput = Value
     end
@@ -212,40 +98,20 @@ Box:AddInput('Key', {
 Box:AddButton({
     Text = 'Verify Key',
     Func = function()
-        print("Attempting to verify key:", keyInput)
-        local result = verifyKey(keyInput)
+        debug("Verifying key:", keyInput)
+        local result = makeRequest(keyInput)
         
         if result == "valid" then
             KeySystem:Unload()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/Pedalkis123/SMAX-Script/main/main1.lua"))()
         elseif result == "invalid_hwid" then
-            Box:AddLabel("HWID mismatch! Use reset option ->")
+            Box:AddLabel("HWID mismatch! Reset in Discord")
         elseif result == "invalid_key" then
-            Box:AddLabel("Invalid key! Purchase at: your_store_url")
-        end
-    end
-})
-
-ResetBox:AddButton({
-    Text = 'Reset HWID',
-    Func = function()
-        if keyInput == "" then
-            ResetBox:AddLabel("Please enter your key first!")
-            return
-        end
-        
-        local result = resetHWID(keyInput)
-        if result == "success" then
-            ResetBox:AddLabel("HWID reset successful!")
-        elseif result == "no_hwid_set" then
-            ResetBox:AddLabel("No HWID set for this key!")
-        elseif result:match("^wait_") then
-            local hours = result:match("wait_(%d+)")
-            ResetBox:AddLabel("Wait " .. hours .. " hours before reset!")
+            Box:AddLabel("Invalid key! Buy at discord.gg/ebwwsfzKyh")
         else
-            ResetBox:AddLabel("Error resetting HWID!")
+            Box:AddLabel("Error! Try again or contact support")
         end
     end
 })
 
-Box:AddLabel("Need a key? Purchase at: your_store_url")
+Box:AddLabel("Need a key? Join discord.gg/ebwwsfzKyh")
