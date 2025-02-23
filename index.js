@@ -87,12 +87,16 @@ app.get('/admin', (req, res) => {
         <head>
             <title>SMAX Admin Panel</title>
             <style>
-                body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; }
+                body { font-family: Arial; max-width: 1200px; margin: 0 auto; padding: 20px; }
                 .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
                 input, select, button { margin: 5px; padding: 8px; }
                 button { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+                button:hover { background: #0056b3; }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; }
                 th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+                .action-btn { margin: 2px; padding: 4px 8px; font-size: 12px; }
+                .revoke-btn { background: #dc3545; }
+                .reset-btn { background: #17a2b8; }
             </style>
             <script>
                 async function login() {
@@ -127,18 +131,93 @@ app.get('/admin', (req, res) => {
 
                     if (response.ok) {
                         alert('Generated 500 new keys successfully!');
-                        location.reload();
+                        loadKeys();
                     } else {
                         alert('Failed to generate keys');
                     }
                 }
 
-                // Add this function
+                async function loadKeys() {
+                    const token = localStorage.getItem('adminToken');
+                    if (!token) return;
+
+                    const response = await fetch('/admin/keys', {
+                        headers: {
+                            'x-admin-token': token
+                        }
+                    });
+
+                    if (response.ok) {
+                        const keys = await response.json();
+                        const tbody = document.getElementById('keysTable').getElementsByTagName('tbody')[0];
+                        tbody.innerHTML = '';
+
+                        keys.forEach(key => {
+                            const row = tbody.insertRow();
+                            row.innerHTML = \`
+                                <td>\${key.key}</td>
+                                <td>\${key.type}</td>
+                                <td>\${key.email || '-'}</td>
+                                <td>\${new Date(key.createdAt).toLocaleDateString()}</td>
+                                <td>\${key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : 'Never'}</td>
+                                <td>\${key.hwid || 'Not Set'}</td>
+                                <td>\${key.lastHwidReset ? new Date(key.lastHwidReset).toLocaleDateString() : 'Never'}</td>
+                                <td>\${key.hwidResetCount}</td>
+                                <td>\${key.uses}</td>
+                                <td>\${key.active ? 'Active' : 'Revoked'}</td>
+                                <td>
+                                    <button class="action-btn revoke-btn" onclick="revokeKey('\${key.key}')">Revoke</button>
+                                    <button class="action-btn reset-btn" onclick="resetHWID('\${key.key}')">Reset HWID</button>
+                                </td>
+                            \`;
+                        });
+                    }
+                }
+
+                async function revokeKey(key) {
+                    const token = localStorage.getItem('adminToken');
+                    if (!token) return;
+
+                    const response = await fetch(\`/admin/revoke-key/\${key}\`, {
+                        method: 'POST',
+                        headers: {
+                            'x-admin-token': token
+                        }
+                    });
+
+                    if (response.ok) {
+                        loadKeys();
+                    } else {
+                        alert('Failed to revoke key');
+                    }
+                }
+
+                async function resetHWID(key) {
+                    const token = localStorage.getItem('adminToken');
+                    if (!token) return;
+
+                    const response = await fetch('/reset-hwid', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-admin-token': token
+                        },
+                        body: JSON.stringify({ key })
+                    });
+
+                    if (response.ok) {
+                        loadKeys();
+                    } else {
+                        alert('Failed to reset HWID');
+                    }
+                }
+
                 window.onload = function() {
                     const token = localStorage.getItem('adminToken');
                     if (token) {
                         document.getElementById('loginForm').style.display = 'none';
                         document.getElementById('adminPanel').style.display = 'block';
+                        loadKeys();
                     }
                 }
             </script>
@@ -155,6 +234,26 @@ app.get('/admin', (req, res) => {
                 <div id="adminPanel" style="display: none;">
                     <h2>Admin Panel</h2>
                     <button onclick="generateKeys()">Generate 500 Keys</button>
+                    
+                    <h3>Key Management</h3>
+                    <table id="keysTable">
+                        <thead>
+                            <tr>
+                                <th>Key</th>
+                                <th>Type</th>
+                                <th>Email</th>
+                                <th>Created</th>
+                                <th>Expires</th>
+                                <th>HWID</th>
+                                <th>Last Reset</th>
+                                <th>Reset Count</th>
+                                <th>Uses</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
                 </div>
             </div>
         </body>
@@ -307,23 +406,26 @@ app.post('/new-purchase', async (req, res) => {
             return res.status(500).send('No available keys');
         }
 
-        // Assign the key
+        // Create entry in main keys collection with exact format
+        await Key.create({
+            key: preGenKey.key,
+            expiresAt: null,
+            type: 'lifetime',
+            email: data.email,
+            uses: 0,
+            active: true,
+            createdAt: new Date(),
+            hwid: null,
+            hwidResetCount: 0,
+            lastHwidReset: null
+        });
+
+        // Mark the pre-generated key as assigned
         preGenKey.isAssigned = true;
         preGenKey.assignedTo = data.email;
         preGenKey.assignedAt = new Date();
         preGenKey.purchaseId = data.order_id || data.id;
         await preGenKey.save();
-
-        // Create entry in main keys collection
-        await Key.create({
-            key: preGenKey.key,
-            email: data.email,
-            type: 'purchased',
-            createdAt: new Date(),
-            expiresAt: null,
-            active: true,
-            purchaseId: data.order_id || data.id
-        });
 
         // Send email
         const mailOptions = {
