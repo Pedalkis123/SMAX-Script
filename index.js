@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const app = express();
+const nodemailer = require('nodemailer');
 
 // Enable JSON body parsing
 app.use(express.json());
@@ -46,6 +47,17 @@ const keySchema = new mongoose.Schema({
 });
 
 const Key = mongoose.model('Key', keySchema);
+
+// Add this after your other schemas
+const preGeneratedKeySchema = new mongoose.Schema({
+    key: { type: String, required: true, unique: true },
+    isAssigned: { type: Boolean, default: false },
+    assignedTo: String,
+    assignedAt: Date,
+    purchaseId: String
+});
+
+const PreGeneratedKey = mongoose.model('PreGeneratedKey', preGeneratedKeySchema);
 
 // Store valid keys
 const validKeys = new Map();
@@ -380,47 +392,102 @@ Important:
 - Join our Discord for support: https://discord.gg/ebwwsfzKyh`;
 }
 
-// Shoppy webhook endpoint
+// Add endpoint to generate 500 keys
+app.get('/admin/generate-keys', verifyAdmin, async (req, res) => {
+    try {
+        const keys = [];
+        for (let i = 0; i < 500; i++) {
+            const key = Math.random().toString(36).substring(2) + 
+                       Math.random().toString(36).substring(2) + 
+                       Math.random().toString(36).substring(2);
+            keys.push({ key });
+        }
+        
+        await PreGeneratedKey.insertMany(keys);
+        res.send('Generated 500 new keys');
+    } catch (err) {
+        console.error('Error generating keys:', err);
+        res.status(500).send('Error generating keys');
+    }
+});
+
+// Add nodemailer setup
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: process.env.EMAIL_USER, // Your Gmail
+        pass: process.env.EMAIL_PASS  // Your app-specific password
+    }
+});
+
+// Modified purchase webhook
 app.post('/new-purchase', async (req, res) => {
     try {
-        console.log('Received webhook:', req.body); // Debug log
+        console.log('Received webhook:', req.body);
         
-        // Shoppy sends data in a specific format
         const data = req.body;
         if (!data || !data.email) {
             console.error('Invalid webhook data received');
             return res.status(400).send('Invalid data');
         }
 
-        // Generate new key (more secure)
-        const key = Math.random().toString(36).substring(2) + 
-                   Math.random().toString(36).substring(2) + 
-                   Math.random().toString(36).substring(2);
-        
-        // Save key to database
-        const newKey = await Key.create({
-            key,
+        // Find an unassigned key
+        const preGenKey = await PreGeneratedKey.findOne({ isAssigned: false });
+        if (!preGenKey) {
+            console.error('No available keys!');
+            return res.status(500).send('No available keys');
+        }
+
+        // Assign the key
+        preGenKey.isAssigned = true;
+        preGenKey.assignedTo = data.email;
+        preGenKey.assignedAt = new Date();
+        preGenKey.purchaseId = data.order_id || data.id;
+        await preGenKey.save();
+
+        // Create entry in main keys collection
+        await Key.create({
+            key: preGenKey.key,
             email: data.email,
             type: 'purchased',
             createdAt: new Date(),
-            expiresAt: null, // Lifetime key
+            expiresAt: null,
             active: true,
             purchaseId: data.order_id || data.id
         });
 
-        console.log('Key created in database:', newKey); // Debug log
+        // Send email
+        const mailOptions = {
+            from: process.env.EMAIL_USER,
+            to: data.email,
+            subject: 'Your SMAX Purchase',
+            text: `Thank you for purchasing SMAX! Your unique key is: ${preGenKey.key}
 
-        // Send ONLY the key back to Shoppy
-        res.status(200).send(key);
+Instructions:
+1. Launch Roblox
+2. Execute the script
+3. Enter your key when prompted
+4. Enjoy!
 
-        console.log('New key generated and sent:', {
-            key: key,
+Important:
+- This key is unique to you
+- Do not share your key
+- Join our Discord for support: https://discord.gg/ebwwsfzKyh`
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        // Send success response to Shoppy
+        res.status(200).send('OK');
+
+        console.log('Key assigned and email sent:', {
+            key: preGenKey.key,
             email: data.email,
             orderId: data.order_id || data.id
         });
     } catch (err) {
         console.error('Error processing purchase:', err);
-        console.error(err.stack); // Full error stack trace
+        console.error(err.stack);
         res.status(500).send('Error');
     }
 });
@@ -506,96 +573,6 @@ app.use((req, res, next) => {
 // Add near other routes
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
-});
-
-// Gumroad webhook endpoint
-app.post('/gumroad-webhook', async (req, res) => {
-    try {
-        const { 
-            email,
-            seller_id,
-            product_id,
-            purchase_id,
-            sale_timestamp,
-            test
-        } = req.body;
-
-        // Verify it's from Gumroad (add your product ID)
-        if (product_id !== process.env.GUMROAD_PRODUCT_ID) {
-            return res.status(400).send('Invalid product');
-        }
-
-        const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
-        
-        await Key.create({
-            key,
-            email,
-            type: 'purchased',
-            createdAt: new Date(sale_timestamp),
-            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            active: true,
-            purchaseId: purchase_id
-        });
-
-        // Send email to customer
-        const emailContent = generateEmailContent(key);
-        // Implement email sending here if needed (Gumroad can also handle this)
-
-        console.log('New Gumroad purchase key generated:', key);
-        res.status(200).send('OK');
-    } catch (err) {
-        console.error('Gumroad webhook error:', err);
-        res.status(500).send('Error');
-    }
-});
-
-// Add Sellix webhook endpoint
-app.post('/sellix-webhook', async (req, res) => {
-    try {
-        const { data } = req.body;
-        
-        if (data.status === 'COMPLETED') {
-            // Generate a random key (longer and more secure)
-            const key = Math.random().toString(36).substring(2) + 
-                       Math.random().toString(36).substring(2) + 
-                       Math.random().toString(36).substring(2);
-            
-            // Create key in database
-            await Key.create({
-                key,
-                email: data.customer_email,
-                type: 'purchased',
-                createdAt: new Date(),
-                expiresAt: null, // Lifetime key
-                active: true,
-                purchaseId: data.uniqid
-            });
-
-            // Generate email content with the actual key
-            const emailContent = generateEmailContent(key);
-
-            // Send response to Sellix with the email content
-            res.status(200).json({
-                status: 200,
-                message: 'OK',
-                customer_email: data.customer_email,
-                custom_message: emailContent,
-                download_link: null,
-                file_name: null
-            });
-
-            console.log('New key generated and sent:', {
-                key: key,
-                email: data.customer_email,
-                purchaseId: data.uniqid
-            });
-        } else {
-            res.status(200).send('OK');
-        }
-    } catch (err) {
-        console.error('Sellix webhook error:', err);
-        res.status(500).send('Error');
-    }
 });
 
 // Fix HWID reset endpoint
