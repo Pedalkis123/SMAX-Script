@@ -603,7 +603,7 @@ app.post('/reset-hwid', async (req, res) => {
         if (keyData.lastHwidReset) {
             const hoursSinceReset = (Date.now() - keyData.lastHwidReset) / (1000 * 60 * 60);
             if (hoursSinceReset < 24) {
-                return res.send(\`wait_${Math.ceil(24 - hoursSinceReset)}\`);
+                return res.send(`wait_${Math.ceil(24 - hoursSinceReset)}`);
             }
         }
 
@@ -623,7 +623,7 @@ app.post('/reset-hwid', async (req, res) => {
 // Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(\`Server running on port ${PORT}\`);
+    console.log(`Server running on port ${PORT}`);
     console.log('Available endpoints:');
     console.log('- GET  /              (Check server status)');
     console.log('- GET  /generate-test (Generate test key)');
