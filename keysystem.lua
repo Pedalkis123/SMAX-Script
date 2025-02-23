@@ -84,18 +84,51 @@ local function makeRequest(url, method, data)
     return response
 end
 
-local function verifyKey(key)
-    local response = makeRequest(
-        "https://smax-script.onrender.com/verify",
-        "POST",
-        {["key"] = key}
-    )
+-- Add this function to standardize HWID across executors
+local function getHWID()
+    local hwid = nil
     
-    if response then
-        return response.Body
+    -- Try different HWID methods
+    if syn then
+        hwid = syn.request({Url = "https://httpbin.org/get"}).Body:find("Syn%-Fingerprint: ([%w-]+)") 
+    elseif http_request then
+        hwid = http_request({Url = "https://httpbin.org/get"}).Body:find("Syn%-Fingerprint: ([%w-]+)")
+    elseif identifyexecutor then
+        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
     end
     
-    return "error"
+    -- Fallback to basic HWID if none found
+    if not hwid then
+        hwid = game:GetService("RbxAnalyticsService"):GetClientId()
+    end
+    
+    -- Clean and format HWID
+    hwid = string.upper(string.gsub(hwid, "%s+", ""))
+    
+    return hwid
+end
+
+-- Update your verify request
+local function verifyKey(key)
+    local hwid = getHWID()
+    
+    local response = http_request({
+        Url = "https://smax-script.onrender.com/verify",
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = game:GetService("HttpService"):JSONEncode({
+            key = key,
+            hwid = hwid
+        })
+    })
+    
+    if response.StatusCode == 200 then
+        return response.Body
+    else
+        return "error"
+    end
 end
 
 local function resetHWID(key)
