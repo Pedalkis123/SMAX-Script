@@ -87,207 +87,76 @@ app.get('/admin', (req, res) => {
         <head>
             <title>SMAX Admin Panel</title>
             <style>
-                body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
-                .container { margin-top: 20px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                body { font-family: Arial; max-width: 800px; margin: 0 auto; padding: 20px; }
+                .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                input, select, button { margin: 5px; padding: 8px; }
+                button { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { padding: 12px; text-align: left; border: 1px solid #ddd; }
-                th { background: #f8f9fa; }
-                button { padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-                button:hover { background: #0056b3; }
-                button:disabled { background: #ccc; }
-                input, select { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 4px; }
-                .login-container { max-width: 400px; margin: 100px auto; }
-                .error { color: red; margin-top: 10px; }
+                th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
             </style>
-        </head>
-        <body>
-            <div id="loginForm" class="login-container container">
-                <h2>Admin Login</h2>
-                <div>
-                    <input type="text" id="username" placeholder="Username">
-                </div>
-                <div>
-                    <input type="password" id="password" placeholder="Password">
-                </div>
-                <div>
-                    <button onclick="login()">Login</button>
-                </div>
-                <div id="loginError" class="error"></div>
-            </div>
-
-            <div id="adminPanel" style="display: none;">
-                <div class="container">
-                    <h2>Generate Key</h2>
-                    <div>
-                        <input type="text" id="email" placeholder="Email">
-                        <select id="type">
-                            <option value="lifetime">Lifetime</option>
-                            <option value="monthly">Monthly</option>
-                            <option value="weekly">Weekly</option>
-                        </select>
-                        <input type="number" id="duration" placeholder="Duration (days)">
-                        <button onclick="generateKey()">Generate Key</button>
-                    </div>
-                </div>
-
-                <div class="container">
-                    <h2>Key Management</h2>
-                    <table id="keysTable">
-                        <thead>
-                            <tr>
-                                <th>Key</th>
-                                <th>Type</th>
-                                <th>Email</th>
-                                <th>Created</th>
-                                <th>Expires</th>
-                                <th>HWID</th>
-                                <th>Last Reset</th>
-                                <th>Reset Count</th>
-                                <th>Uses</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-
             <script>
-                let token = localStorage.getItem('adminToken');
-                
                 async function login() {
                     const username = document.getElementById('username').value;
                     const password = document.getElementById('password').value;
-                    const errorDiv = document.getElementById('loginError');
                     
-                    try {
-                        const response = await fetch('/admin/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ username, password })
-                        });
-                        
-                        if (response.ok) {
-                            const data = await response.json();
-                            token = data.token;
-                            localStorage.setItem('adminToken', token);
-                            showAdminPanel();
-                            loadKeys();
-                            errorDiv.textContent = '';
-                        } else {
-                            errorDiv.textContent = 'Invalid credentials';
-                        }
-                    } catch (err) {
-                        errorDiv.textContent = 'Login failed';
-                    }
-                }
-
-                async function generateKey() {
-                    const email = document.getElementById('email').value;
-                    const type = document.getElementById('type').value;
-                    const duration = document.getElementById('duration').value;
+                    const response = await fetch('/admin/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, password })
+                    });
                     
-                    try {
-                        const response = await fetch('/admin/generate-key', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-admin-token': token
-                            },
-                            body: JSON.stringify({ email, type, duration })
-                        });
-                        
-                        if (response.ok) {
-                            const data = await response.json();
-                            alert('Generated key: ' + data.key);
-                            loadKeys();
-                        }
-                    } catch (err) {
-                        alert('Error generating key');
+                    if (response.ok) {
+                        const data = await response.json();
+                        localStorage.setItem('adminToken', data.token);
+                        location.reload();
+                    } else {
+                        alert('Login failed');
                     }
                 }
 
-                async function loadKeys() {
-                    try {
-                        const response = await fetch('/admin/keys', {
-                            headers: { 'x-admin-token': token }
-                        });
-                        
-                        if (response.ok) {
-                            const keys = await response.json();
-                            const tbody = document.querySelector('#keysTable tbody');
-                            tbody.innerHTML = '';
-                            
-                            keys.forEach(key => {
-                                const tr = document.createElement('tr');
-                                tr.innerHTML = \`
-                                    <td>\${key.key}</td>
-                                    <td>\${key.type}</td>
-                                    <td>\${key.email || '-'}</td>
-                                    <td>\${new Date(key.createdAt).toLocaleDateString()}</td>
-                                    <td>\${key.expiresAt ? new Date(key.expiresAt).toLocaleDateString() : 'Never'}</td>
-                                    <td>\${key.hwid || 'Not Set'}</td>
-                                    <td>\${key.lastHwidReset ? new Date(key.lastHwidReset).toLocaleDateString() : 'Never'}</td>
-                                    <td>\${key.hwidResetCount}</td>
-                                    <td>\${key.uses}</td>
-                                    <td>\${key.active ? 'Active' : 'Revoked'}</td>
-                                    <td>
-                                        <button onclick="revokeKey('\${key.key}')" \${!key.active ? 'disabled' : ''}>
-                                            \${key.active ? 'Revoke' : 'Revoked'}
-                                        </button>
-                                        <button onclick="resetHWID('\${key.key}')">Reset HWID</button>
-                                    </td>
-                                \`;
-                                tbody.appendChild(tr);
-                            });
+                async function generateKeys() {
+                    const token = localStorage.getItem('adminToken');
+                    if (!token) return alert('Please login first');
+
+                    const response = await fetch('/admin/generate-keys', {
+                        method: 'GET',
+                        headers: {
+                            'x-admin-token': token
                         }
-                    } catch (err) {
-                        console.error('Error loading keys:', err);
+                    });
+
+                    if (response.ok) {
+                        alert('Generated 500 new keys successfully!');
+                        location.reload();
+                    } else {
+                        alert('Failed to generate keys');
                     }
                 }
 
-                async function revokeKey(key) {
-                    try {
-                        const response = await fetch(\`/admin/revoke-key/\${key}\`, {
-                            method: 'POST',
-                            headers: { 'x-admin-token': token }
-                        });
-                        
-                        if (response.ok) {
-                            loadKeys();
-                        }
-                    } catch (err) {
-                        alert('Error revoking key');
+                // Add this function
+                window.onload = function() {
+                    const token = localStorage.getItem('adminToken');
+                    if (token) {
+                        document.getElementById('loginForm').style.display = 'none';
+                        document.getElementById('adminPanel').style.display = 'block';
                     }
-                }
-
-                async function resetHWID(key) {
-                    try {
-                        const response = await fetch(\`/admin/reset-hwid/\${key}\`, {
-                            method: 'POST',
-                            headers: { 'x-admin-token': token }
-                        });
-                        
-                        if (response.ok) {
-                            alert('HWID reset successful');
-                            loadKeys();
-                        }
-                    } catch (err) {
-                        alert('Error resetting HWID');
-                    }
-                }
-
-                function showAdminPanel() {
-                    document.getElementById('loginForm').style.display = 'none';
-                    document.getElementById('adminPanel').style.display = 'block';
-                }
-
-                if (token) {
-                    showAdminPanel();
-                    loadKeys();
                 }
             </script>
+        </head>
+        <body>
+            <div class="container">
+                <div id="loginForm">
+                    <h2>Admin Login</h2>
+                    <input type="text" id="username" placeholder="Username">
+                    <input type="password" id="password" placeholder="Password">
+                    <button onclick="login()">Login</button>
+                </div>
+                
+                <div id="adminPanel" style="display: none;">
+                    <h2>Admin Panel</h2>
+                    <button onclick="generateKeys()">Generate 500 Keys</button>
+                </div>
+            </div>
         </body>
         </html>
     `);
