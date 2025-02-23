@@ -37,26 +37,22 @@ local function getHWID()
 end
 
 -- Make request
-local function makeRequest(key)
+local function makeRequest(url, method, data)
     local requestFunc = getRequestFunction()
     if not requestFunc then
         debug("No compatible request function found")
         return "error"
     end
 
-    local data = HttpService:JSONEncode({
-        key = key,
-        hwid = getHWID()
-    })
-
+    local jsonData = HttpService:JSONEncode(data)
     local success, response = pcall(function()
         return requestFunc({
-            Url = "https://smax-script.onrender.com/verify",
-            Method = "POST",
+            Url = url,
+            Method = method,
             Headers = {
                 ["Content-Type"] = "application/json"
             },
-            Body = data
+            Body = jsonData
         })
     end)
 
@@ -72,6 +68,29 @@ local function makeRequest(key)
     return "error"
 end
 
+-- Verify key function
+local function verifyKey(key)
+    return makeRequest(
+        "https://smax-script.onrender.com/verify",
+        "POST",
+        {
+            key = key,
+            hwid = getHWID()
+        }
+    )
+end
+
+-- Reset HWID function
+local function resetHWID(key)
+    return makeRequest(
+        "https://smax-script.onrender.com/reset-hwid",
+        "POST",
+        {
+            key = key
+        }
+    )
+end
+
 -- Create UI
 local KeySystem = loadstring(game:HttpGet("https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/Library.lua"))()
 local Window = KeySystem:CreateWindow({
@@ -82,6 +101,7 @@ local Window = KeySystem:CreateWindow({
 
 local Tab = Window:AddTab('Verification')
 local Box = Tab:AddLeftGroupbox('Enter Key')
+local ResetBox = Tab:AddRightGroupbox('HWID Reset')
 
 local keyInput = ""
 Box:AddInput('KeyInput', {
@@ -99,17 +119,39 @@ Box:AddButton({
     Text = 'Verify Key',
     Func = function()
         debug("Verifying key:", keyInput)
-        local result = makeRequest(keyInput)
+        local result = verifyKey(keyInput)
         
         if result == "valid" then
             KeySystem:Unload()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/Pedalkis123/SMAX-Script/main/main1.lua"))()
         elseif result == "invalid_hwid" then
-            Box:AddLabel("HWID mismatch! Reset in Discord")
+            Box:AddLabel("HWID mismatch! Use reset option ->")
         elseif result == "invalid_key" then
             Box:AddLabel("Invalid key! Buy at discord.gg/ebwwsfzKyh")
         else
             Box:AddLabel("Error! Try again or contact support")
+        end
+    end
+})
+
+ResetBox:AddButton({
+    Text = 'Reset HWID',
+    Func = function()
+        if keyInput == "" then
+            ResetBox:AddLabel("Please enter your key first!")
+            return
+        end
+        
+        local result = resetHWID(keyInput)
+        if result == "success" then
+            ResetBox:AddLabel("HWID reset successful!")
+        elseif result == "no_hwid_set" then
+            ResetBox:AddLabel("No HWID set for this key!")
+        elseif result:match("^wait_") then
+            local hours = result:match("wait_(%d+)")
+            ResetBox:AddLabel("Wait " .. hours .. " hours before reset!")
+        else
+            ResetBox:AddLabel("Error resetting HWID!")
         end
     end
 })
