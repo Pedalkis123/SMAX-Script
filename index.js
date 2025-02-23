@@ -2,15 +2,21 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const app = express();
 
 // Enable JSON body parsing
 app.use(express.json());
 
+// Set trust proxy
+app.set('trust proxy', 1);
+
 // Connect to MongoDB with your connection string
 mongoose.connect(process.env.MONGODB_URI, {
     useNewUrlParser: true,
-    useUnifiedTopology: true
+    useUnifiedTopology: true,
+    serverSelectionTimeoutMS: 5000,
+    retryWrites: true
 }).then(() => {
     console.log('Connected to MongoDB');
 }).catch(err => {
@@ -34,9 +40,10 @@ const keySchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
     expiresAt: Date,
     type: String,
-    email: String,
+    email: { type: String, required: true },
     uses: { type: Number, default: 0 },
-    active: { type: Boolean, default: true }
+    active: { type: Boolean, default: true },
+    purchaseId: String
 });
 
 const Key = mongoose.model('Key', keySchema);
@@ -407,54 +414,7 @@ app.post('/new-purchase', async (req, res) => {
     }
 });
 
-// HWID reset endpoint
-app.post('/reset-hwid', async (req, res) => {
-    const { key } = req.body;
-    
-    try {
-        const keyData = await Key.findOne({ key });
-        if (!keyData || !keyData.active) return res.send('invalid_key');
-
-        // Check if 24 hours have passed since last reset
-        if (keyData.lastHwidReset) {
-            const hoursSinceReset = (Date.now() - keyData.lastHwidReset) / (1000 * 60 * 60);
-            if (hoursSinceReset < 24) {
-                return res.send(`wait_${Math.ceil(24 - hoursSinceReset)}`);
-            }
-        }
-
-        // Reset HWID
-        keyData.hwid = null;
-        keyData.lastHwidReset = new Date();
-        keyData.hwidResetCount += 1;
-        await keyData.save();
-        
-        res.send('success');
-    } catch (err) {
-        res.status(500).send('Error');
-    }
-});
-
-// Admin HWID reset endpoint
-app.post('/admin/reset-hwid/:key', verifyAdmin, async (req, res) => {
-    try {
-        await Key.updateOne(
-            { key: req.params.key }, 
-            { 
-                $set: { 
-                    hwid: null,
-                    lastHwidReset: new Date()
-                },
-                $inc: { hwidResetCount: 1 }
-            }
-        );
-        res.send('HWID reset successful');
-    } catch (err) {
-        res.status(500).send('Error resetting HWID');
-    }
-});
-
-// Updated verify endpoint with HWID check
+// Update verify endpoint
 app.post('/verify', async (req, res) => {
     const { key, hwid } = req.body;
     
@@ -462,20 +422,26 @@ app.post('/verify', async (req, res) => {
         const keyData = await Key.findOne({ key });
         if (!keyData || !keyData.active) return res.send('invalid_key');
         
+        // Check expiration only if expiresAt is not null
         if (keyData.expiresAt && keyData.expiresAt < new Date()) {
             return res.send('expired_key');
         }
         
-        if (keyData.hwid && keyData.hwid !== hwid) {
-            return res.send('invalid_hwid');
-        }
-        
+        // If no HWID is set, assign it
         if (!keyData.hwid) {
             keyData.hwid = hwid;
             keyData.uses += 1;
             await keyData.save();
+            return res.send('valid');
         }
         
+        // If HWID is set, verify it matches
+        if (keyData.hwid !== hwid) {
+            return res.send('invalid_hwid');
+        }
+        
+        keyData.uses += 1;
+        await keyData.save();
         res.send('valid');
     } catch (err) {
         console.error(err);
@@ -526,9 +492,119 @@ app.use((req, res, next) => {
     next();
 });
 
+// Add near other routes
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Gumroad webhook endpoint
+app.post('/gumroad-webhook', async (req, res) => {
+    try {
+        const { 
+            email,
+            seller_id,
+            product_id,
+            purchase_id,
+            sale_timestamp,
+            test
+        } = req.body;
+
+        // Verify it's from Gumroad (add your product ID)
+        if (product_id !== process.env.GUMROAD_PRODUCT_ID) {
+            return res.status(400).send('Invalid product');
+        }
+
+        const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+        
+        await Key.create({
+            key,
+            email,
+            type: 'purchased',
+            createdAt: new Date(sale_timestamp),
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            active: true,
+            purchaseId: purchase_id
+        });
+
+        // Send email to customer
+        const emailContent = generateEmailContent(key);
+        // Implement email sending here if needed (Gumroad can also handle this)
+
+        console.log('New Gumroad purchase key generated:', key);
+        res.status(200).send('OK');
+    } catch (err) {
+        console.error('Gumroad webhook error:', err);
+        res.status(500).send('Error');
+    }
+});
+
+// Add Sellix webhook endpoint
+app.post('/sellix-webhook', async (req, res) => {
+    try {
+        const { data } = req.body;
+        
+        if (data.status === 'COMPLETED') {
+            const key = Math.random().toString(36).substring(2) + Math.random().toString(36).substring(2);
+            
+            await Key.create({
+                key,
+                email: data.customer_email,
+                type: 'purchased',
+                createdAt: new Date(),
+                expiresAt: null, // Set to null for lifetime keys
+                active: true,
+                purchaseId: data.uniqid
+            });
+
+            // Send email to customer
+            const emailContent = generateEmailContent(key);
+            // Implement email sending here
+
+            console.log('New Sellix purchase key generated:', key);
+        }
+        
+        res.status(200).send('OK');
+    } catch (err) {
+        console.error('Sellix webhook error:', err);
+        res.status(500).send('Error');
+    }
+});
+
+// Add HWID reset endpoint
+app.post('/reset-hwid', async (req, res) => {
+    const { key } = req.body;
+    
+    try {
+        const keyData = await Key.findOne({ key });
+        if (!keyData || !keyData.active) return res.send('invalid_key');
+
+        // Check if HWID is already reset
+        if (!keyData.hwid) return res.send('no_hwid_set');
+
+        // Check if 24 hours have passed since last reset
+        if (keyData.lastHwidReset) {
+            const hoursSinceReset = (Date.now() - keyData.lastHwidReset) / (1000 * 60 * 60);
+            if (hoursSinceReset < 24) {
+                return res.send(`wait_${Math.ceil(24 - hoursSinceReset)}`);
+            }
+        }
+
+        // Reset HWID
+        keyData.hwid = null;
+        keyData.lastHwidReset = new Date();
+        keyData.hwidResetCount += 1;
+        await keyData.save();
+        
+        res.send('success');
+    } catch (err) {
+        console.error('HWID reset error:', err);
+        res.status(500).send('Error');
+    }
+});
+
 // Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
     console.log('Available endpoints:');
     console.log('- GET  /              (Check server status)');
