@@ -588,7 +588,7 @@ app.post('/sellix-webhook', async (req, res) => {
     }
 });
 
-// Add HWID reset endpoint
+// Fix HWID reset endpoint
 app.post('/reset-hwid', async (req, res) => {
     const { key } = req.body;
     
