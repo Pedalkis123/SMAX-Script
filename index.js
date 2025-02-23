@@ -383,34 +383,44 @@ Important:
 // Shoppy webhook endpoint
 app.post('/new-purchase', async (req, res) => {
     try {
-        const { email, product_id } = req.body;
+        console.log('Received webhook:', req.body); // Debug log
         
+        // Shoppy sends data in a specific format
+        const data = req.body;
+        if (!data || !data.email) {
+            console.error('Invalid webhook data received');
+            return res.status(400).send('Invalid data');
+        }
+
         // Generate new key (more secure)
         const key = Math.random().toString(36).substring(2) + 
                    Math.random().toString(36).substring(2) + 
                    Math.random().toString(36).substring(2);
         
         // Save key to database
-        await Key.create({
+        const newKey = await Key.create({
             key,
-            email,
+            email: data.email,
             type: 'purchased',
             createdAt: new Date(),
             expiresAt: null, // Lifetime key
             active: true,
-            purchaseId: req.body.order_id
+            purchaseId: data.order_id || data.id
         });
 
-        // Just send back the key - Shoppy will insert it into {{product}} in the email template
-        res.send(key);
+        console.log('Key created in database:', newKey); // Debug log
 
-        console.log('New key generated:', {
+        // Send ONLY the key back to Shoppy
+        res.status(200).send(key);
+
+        console.log('New key generated and sent:', {
             key: key,
-            email: email,
-            orderId: req.body.order_id
+            email: data.email,
+            orderId: data.order_id || data.id
         });
     } catch (err) {
         console.error('Error processing purchase:', err);
+        console.error(err.stack); // Full error stack trace
         res.status(500).send('Error');
     }
 });
