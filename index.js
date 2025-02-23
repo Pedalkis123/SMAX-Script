@@ -401,7 +401,7 @@ app.post('/new-purchase', async (req, res) => {
             purchaseId: req.body.order_id
         });
 
-        // Just send the key - Shoppy will handle the template
+        // Just send back the key - Shoppy will insert it into {{product}} in the email template
         res.send(key);
 
         console.log('New key generated:', {
