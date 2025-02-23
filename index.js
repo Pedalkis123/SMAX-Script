@@ -89,9 +89,12 @@ app.get('/admin', (req, res) => {
             <style>
                 body { font-family: Arial; max-width: 1200px; margin: 0 auto; padding: 20px; }
                 .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                .section { margin: 20px 0; padding: 20px; border: 1px solid #eee; border-radius: 4px; }
                 input, select, button { margin: 5px; padding: 8px; }
                 button { background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
                 button:hover { background: #0056b3; }
+                .generate-btn { background: #28a745; }
+                .generate-btn:hover { background: #218838; }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; }
                 th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
                 .action-btn { margin: 2px; padding: 4px 8px; font-size: 12px; }
@@ -118,7 +121,33 @@ app.get('/admin', (req, res) => {
                     }
                 }
 
-                async function generateKeys() {
+                async function generateSingleKey() {
+                    const token = localStorage.getItem('adminToken');
+                    if (!token) return alert('Please login first');
+
+                    const email = document.getElementById('keyEmail').value;
+                    const type = document.getElementById('keyType').value;
+                    const duration = type === 'duration' ? document.getElementById('keyDuration').value : null;
+
+                    const response = await fetch('/admin/generate-key', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-admin-token': token
+                        },
+                        body: JSON.stringify({ email, type, duration })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        alert('Generated key: ' + data.key);
+                        loadKeys();
+                    } else {
+                        alert('Failed to generate key');
+                    }
+                }
+
+                async function generateBulkKeys() {
                     const token = localStorage.getItem('adminToken');
                     if (!token) return alert('Please login first');
 
@@ -135,6 +164,11 @@ app.get('/admin', (req, res) => {
                     } else {
                         alert('Failed to generate keys');
                     }
+                }
+
+                function showDurationField() {
+                    const type = document.getElementById('keyType').value;
+                    document.getElementById('durationField').style.display = type === 'duration' ? 'inline' : 'none';
                 }
 
                 async function loadKeys() {
@@ -233,27 +267,44 @@ app.get('/admin', (req, res) => {
                 
                 <div id="adminPanel" style="display: none;">
                     <h2>Admin Panel</h2>
-                    <button onclick="generateKeys()">Generate 500 Keys</button>
                     
-                    <h3>Key Management</h3>
-                    <table id="keysTable">
-                        <thead>
-                            <tr>
-                                <th>Key</th>
-                                <th>Type</th>
-                                <th>Email</th>
-                                <th>Created</th>
-                                <th>Expires</th>
-                                <th>HWID</th>
-                                <th>Last Reset</th>
-                                <th>Reset Count</th>
-                                <th>Uses</th>
-                                <th>Status</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
+                    <div class="section">
+                        <h3>Generate Single Key</h3>
+                        <input type="email" id="keyEmail" placeholder="Email (optional)">
+                        <select id="keyType" onchange="showDurationField()">
+                            <option value="lifetime">Lifetime</option>
+                            <option value="duration">Duration</option>
+                        </select>
+                        <input type="number" id="durationField" placeholder="Duration (days)" style="display: none;">
+                        <button onclick="generateSingleKey()" class="generate-btn">Generate Key</button>
+                    </div>
+
+                    <div class="section">
+                        <h3>Generate Bulk Keys</h3>
+                        <button onclick="generateBulkKeys()" class="generate-btn">Generate 500 Lifetime Keys</button>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>Key Management</h3>
+                        <table id="keysTable">
+                            <thead>
+                                <tr>
+                                    <th>Key</th>
+                                    <th>Type</th>
+                                    <th>Email</th>
+                                    <th>Created</th>
+                                    <th>Expires</th>
+                                    <th>HWID</th>
+                                    <th>Last Reset</th>
+                                    <th>Reset Count</th>
+                                    <th>Uses</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </body>
@@ -278,14 +329,22 @@ app.post('/admin/login', async (req, res) => {
 // Admin endpoints (protected)
 app.post('/admin/generate-key', verifyAdmin, async (req, res) => {
     const { type, email, duration } = req.body;
-    const key = Math.random().toString(36).substring(2);
+    const key = Math.random().toString(36).substring(2) + 
+               Math.random().toString(36).substring(2) + 
+               Math.random().toString(36).substring(2);
     
     try {
         await Key.create({
             key,
-            type,
-            email,
-            expiresAt: duration ? new Date(Date.now() + duration * 24 * 60 * 60 * 1000) : null
+            type: type || 'lifetime',
+            email: email || 'admin-generated',
+            expiresAt: type === 'duration' ? new Date(Date.now() + duration * 24 * 60 * 60 * 1000) : null,
+            uses: 0,
+            active: true,
+            createdAt: new Date(),
+            hwid: null,
+            hwidResetCount: 0,
+            lastHwidReset: null
         });
         res.json({ key });
     } catch (err) {
