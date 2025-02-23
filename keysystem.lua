@@ -77,9 +77,12 @@ local function makeRequest(url, method, data)
         local jsonData = HttpService:JSONEncode(data)
         local executor = getExecutorType()
         
+        -- Standardize response handling for all executors
+        local rawResponse
+        
         if executor == "Synapse X" then
             debugLog("Using Synapse X request method")
-            return syn.request({
+            rawResponse = syn.request({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
@@ -87,7 +90,7 @@ local function makeRequest(url, method, data)
             })
         elseif executor == "Krnl" then
             debugLog("Using Krnl request method")
-            return request({
+            rawResponse = request({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
@@ -95,7 +98,7 @@ local function makeRequest(url, method, data)
             })
         elseif executor:find("Xeno") then
             debugLog("Using Xeno request method")
-            return http_request({
+            rawResponse = http_request({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
@@ -103,18 +106,29 @@ local function makeRequest(url, method, data)
             })
         else
             debugLog("Using fallback request method")
-            return HttpService:RequestAsync({
+            rawResponse = HttpService:RequestAsync({
                 Url = url,
                 Method = method,
                 Headers = {["Content-Type"] = "application/json"},
                 Body = jsonData
             })
         end
+
+        -- Standardize response format
+        return {
+            Success = rawResponse.Success or rawResponse.StatusCode == 200,
+            StatusCode = rawResponse.StatusCode or 500,
+            Body = (type(rawResponse.Body) == "string" and rawResponse.Body:match("^%s*(.-)%s*$")) or "error"
+        }
     end)
     
     if not success then
         debugLog("Request failed:", response)
-        return nil
+        return {
+            Success = false,
+            StatusCode = 500,
+            Body = "error"
+        }
     end
     
     debugLog("Request successful. Response:", HttpService:JSONEncode(response))
@@ -141,15 +155,21 @@ local function verifyKey(key)
         data
     )
     
-    if response and response.Body then
-        debugLog("Verify response:", response.Body)
-        return response.Body
+    if response.Success and response.Body then
+        local result = response.Body
+        debugLog("Verify response:", result)
+        -- Clean up response
+        result = result:match("^%s*(.-)%s*$") -- Trim whitespace
+        if result == "valid" or result == "invalid_key" or result == "invalid_hwid" or result == "expired_key" then
+            return result
+        end
     end
     
     debugLog("Verify failed!")
     return "error"
 end
 
+-- Reset HWID function
 local function resetHWID(key)
     local response = makeRequest(
         "https://smax-script.onrender.com/reset-hwid",
@@ -157,8 +177,8 @@ local function resetHWID(key)
         {["key"] = key}
     )
     
-    if response then
-        return response.Body
+    if response.Success and response.Body then
+        return response.Body:match("^%s*(.-)%s*$") -- Trim whitespace
     end
     
     return "error"
