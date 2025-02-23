@@ -569,32 +569,48 @@ app.post('/verify', async (req, res) => {
     const { key, hwid } = req.body;
     
     try {
+        console.log('Verify request:', { key, hwid }); // Debug log
+        
         const keyData = await Key.findOne({ key });
-        if (!keyData || !keyData.active) return res.send('invalid_key');
+        if (!keyData || !keyData.active) {
+            console.log('Invalid or inactive key:', key);
+            return res.send('invalid_key');
+        }
         
         // Check expiration only if expiresAt is not null
         if (keyData.expiresAt && keyData.expiresAt < new Date()) {
+            console.log('Key expired:', key);
             return res.send('expired_key');
         }
         
+        // Clean and standardize HWID format
+        const cleanHWID = hwid.trim().toUpperCase();
+        const storedHWID = keyData.hwid ? keyData.hwid.trim().toUpperCase() : null;
+        
         // If no HWID is set, assign it
-        if (!keyData.hwid) {
-            keyData.hwid = hwid;
+        if (!storedHWID) {
+            keyData.hwid = cleanHWID;
             keyData.uses += 1;
             await keyData.save();
+            console.log('New HWID set:', { key, hwid: cleanHWID });
             return res.send('valid');
         }
         
         // If HWID is set, verify it matches
-        if (keyData.hwid !== hwid) {
+        if (storedHWID !== cleanHWID) {
+            console.log('HWID mismatch:', {
+                stored: storedHWID,
+                received: cleanHWID
+            });
             return res.send('invalid_hwid');
         }
         
         keyData.uses += 1;
         await keyData.save();
+        console.log('Valid key used:', { key, hwid: cleanHWID });
         res.send('valid');
     } catch (err) {
-        console.error(err);
+        console.error('Verify error:', err);
         res.status(500).send('Error');
     }
 });
